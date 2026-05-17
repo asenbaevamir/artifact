@@ -1,0 +1,72 @@
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: mind-ar-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: mind-ar-api:latest
+    container_name: mind-ar-api
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - uploads_data:/app/uploads
+      - results_data:/app/results
+      - logs_data:/app/logs
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: mind-ar-api:latest
+    container_name: mind-ar-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ['node', 'dist/worker.js']
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - uploads_data:/app/uploads
+      - results_data:/app/results
+      - logs_data:/app/logs
+
+volumes:
+  redis_data:
+  uploads_data:
+  results_data:
+  logs_data:
